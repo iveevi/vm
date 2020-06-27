@@ -21,6 +21,6 @@ void update(WINDOW *&rwin)
 	}
 }
 
-#define RAMS    REGS
+extern size_t RAMS;
 
 #endif

@@ -3,10 +3,14 @@
 #include <sstream>
 #include <ncurses.h>
 #include <string>
+#include <sys/ioctl.h>
 
 #include "registers.h"
 
 using namespace std;
+
+// Initializing Global Variables
+size_t RAMS = 100;
 
 // Computer
 byte pc;
@@ -66,13 +70,13 @@ string assembly(byte line)
 	byte r_thr = (line & 0b00000011);
 
 	return asmb[opc] + "\tr" + to_string(r_one)
-		+ ",\tr" + to_string(r_two) + ",\tr"
+		+ ", r" + to_string(r_two) + ", r"
 		+ to_string(r_thr);
 }
 
 WINDOW *redraw_reg_win()
 {
-	WINDOW *subwindow = newwin(REGS + 4, 19, 1, 2);
+	WINDOW *subwindow = newwin(REGS + 4, 19, 1, 59);
 
         box(subwindow, 0, 0);
 
@@ -84,7 +88,7 @@ WINDOW *redraw_reg_win()
 
 		oss << bitset <8> (regs[i]);
 
-        	mvwprintw(subwindow, i + 3, 1, " $%x\t %s ", i, oss.str().c_str());
+        	mvwprintw(subwindow, i + 3, 1, " $%d\t %s ", i, oss.str().c_str());
 	}
 	wmove(subwindow, 3, 7);
 	wvline(subwindow, ACS_VLINE, REGS);
@@ -101,11 +105,11 @@ WINDOW *redraw_reg_win()
 
 WINDOW *redraw_ram_win(size_t start)
 {
-	WINDOW *subwindow = newwin(RAMS + 4, 19, 9, 2);
+	WINDOW *subwindow = newwin(RAMS + 4, 19, 1, 2);
 
         box(subwindow, 0, 0);
 
-	mvwprintw(subwindow, 1, 1, " RAM");
+	mvwprintw(subwindow, 1, 1, " MEMORY");
 	wmove(subwindow, 2, 1);
 	whline(subwindow, ACS_HLINE, 18);
 	for (size_t i = start; i < RAMS + start; i++) {
@@ -113,7 +117,7 @@ WINDOW *redraw_ram_win(size_t start)
 
 		oss << bitset <8> (ram[i]);
 
-        	mvwprintw(subwindow, i - start + 3, 1, " 0x%x\t %s ", i, oss.str().c_str());
+        	mvwprintw(subwindow, i - start + 3, 1, " 0x%.2x\t %s ", i, oss.str().c_str());
 	}
 	wmove(subwindow, 3, 7);
 	wvline(subwindow, ACS_VLINE, RAMS);
@@ -128,51 +132,46 @@ WINDOW *redraw_ram_win(size_t start)
 	return subwindow;
 }
 
-WINDOW *redraw_pc_win()
+WINDOW *redraw_pc_win(size_t start)
 {
-	WINDOW *pc_win = newwin(RAMS + 5, 52, 17, 2);
+	WINDOW *pc_win = newwin(RAMS + 4, 36, 1, 22);
 
         box(pc_win, 0, 0);
 
-	mvwprintw(pc_win, 1, 1, " PC");
+	// wattron(pc_win, A_STANDOUT);
+	mvwprintw(pc_win, 1, 1, " PROGRAM COUNTER");
+	// wattroff(pc_win, A_STANDOUT);
 
 	wmove(pc_win, 2, 1);
-	whline(pc_win, ACS_HLINE, 50);
+	whline(pc_win, ACS_HLINE, 34);
 	mvwaddch(pc_win, 2, 0, ACS_LTEE);
-	mvwaddch(pc_win, 2, 51, ACS_RTEE);
+	mvwaddch(pc_win, 2, 35, ACS_RTEE);
+	
+	for (size_t i = start; i < RAMS + start; i++) {
+		ostringstream oss;
 
-	wmove(pc_win, 4, 1);
-	whline(pc_win, ACS_HLINE, 50);
-	mvwaddch(pc_win, 4, 0, ACS_LTEE);
-	mvwaddch(pc_win, 4, 51, ACS_RTEE);
+		oss << bitset <8> (ram[i]);
 
-	wmove(pc_win, 6, 1);
-	whline(pc_win, ACS_HLINE, 50);
-	mvwaddch(pc_win, 6, 0, ACS_LTEE);
-	mvwaddch(pc_win, 6, 51, ACS_RTEE);
+		if (i == pc)
+			wattron(pc_win, A_STANDOUT);
 
-	ostringstream oss;
+        	mvwprintw(pc_win, i - start + 3, 1, " 0x%.2x   %s   %s ", i, oss.str().c_str(), assembly(ram[i]).c_str());
 
-	oss << bitset <8> (pc);
+		if (i == pc)
+			wattroff(pc_win, A_STANDOUT);
+	}
+	
+	wmove(pc_win, 3, 7);
+	wvline(pc_win, ACS_VLINE, RAMS);
+	
+	wmove(pc_win, 3, 18);
+	wvline(pc_win, ACS_VLINE, RAMS);
 
-	mvwprintw(pc_win, 3, 1, " Current Address\t %s ", oss.str().c_str());
+	mvwaddch(pc_win, 2, 7, ACS_TTEE);
+	mvwaddch(pc_win, 2 + RAMS + 1, 7, ACS_BTEE);
 
-	oss.str("");
-	oss.clear();
-
-	oss << bitset <8> (ram[pc]);
-
-	mvwprintw(pc_win, 5, 1, " Current Instruction\t %s ", oss.str().c_str());
-
-	mvwprintw(pc_win, 7, 1, " Assembly\t\t %s ", assembly(ram[pc]).c_str());
-
-	mvwaddch(pc_win, 2, 23, ACS_TTEE);
-	mvwaddch(pc_win, 3, 23, ACS_VLINE);
-	mvwaddch(pc_win, 4, 23, ACS_PLUS);
-	mvwaddch(pc_win, 5, 23, ACS_VLINE);
-	mvwaddch(pc_win, 6, 23, ACS_PLUS);
-	mvwaddch(pc_win, 7, 23, ACS_VLINE);
-	mvwaddch(pc_win, 8, 23, ACS_BTEE);
+	mvwaddch(pc_win, 2, 18, ACS_TTEE);
+	mvwaddch(pc_win, 2 + RAMS + 1, 18, ACS_BTEE);
 
 	wrefresh(pc_win);
 
@@ -193,6 +192,16 @@ int main()
 	// Start windows
 	initscr();
 
+	int mx, my;
+
+	winsize size;
+
+	ioctl(0, TIOCGWINSZ, (char *) &size);
+
+	RAMS = size.ws_row - 6;
+
+	cout << RAMS << endl;
+
 	// Begin Setup
 	noecho();
 	cbreak();
@@ -205,7 +214,7 @@ int main()
         refresh();
 
 	// REGISTERS
-	WINDOW *reg_win = newwin(REGS + 4, 19, 1, 2);
+	WINDOW *reg_win = newwin(REGS + 4, 19, 1, 59);
 
         box(reg_win, 0, 0);
 
@@ -230,11 +239,11 @@ int main()
         wrefresh(reg_win);
 
 	// RAM
-	WINDOW *ram_win = newwin(RAMS + 4, 19, 9, 2);
+	WINDOW *ram_win = newwin(RAMS + 4, 19, 1, 2);
 
         box(ram_win, 0, 0);
 
-	mvwprintw(ram_win, 1, 1, " RAM");
+	mvwprintw(ram_win, 1, 1, " MEMORY");
 	wmove(ram_win, 2, 1);
 	whline(ram_win, ACS_HLINE, 17);
 	for (size_t i = 0; i < RAMS; i++) {
@@ -242,7 +251,7 @@ int main()
 
 		oss << bitset <8> (ram[i]);
 
-        	mvwprintw(ram_win, i + 3, 1, " 0x%x\t %s ", i, oss.str().c_str());
+        	mvwprintw(ram_win, i + 3, 1, " 0x%.2x\t %s ", i, oss.str().c_str());
 	}
 	wmove(ram_win, 3, 7);
 	wvline(ram_win, ACS_VLINE, RAMS);
@@ -255,49 +264,44 @@ int main()
         wrefresh(ram_win);
 
 	// PC
-	WINDOW *pc_win = newwin(RAMS + 5, 52, 17, 2);
+	WINDOW *pc_win = newwin(RAMS + 4, 36, 1, 22);
 
         box(pc_win, 0, 0);
 
-	mvwprintw(pc_win, 1, 1, " PC");
+	// wattron(pc_win, A_STANDOUT);
+	mvwprintw(pc_win, 1, 1, " PROGRAM COUNTER");
+	// wattroff(pc_win, A_STANDOUT);
 
 	wmove(pc_win, 2, 1);
-	whline(pc_win, ACS_HLINE, 50);
+	whline(pc_win, ACS_HLINE, 34);
 	mvwaddch(pc_win, 2, 0, ACS_LTEE);
-	mvwaddch(pc_win, 2, 51, ACS_RTEE);
+	mvwaddch(pc_win, 2, 35, ACS_RTEE);
+	
+	for (size_t i = 0; i < RAMS; i++) {
+		ostringstream oss;
 
-	wmove(pc_win, 4, 1);
-	whline(pc_win, ACS_HLINE, 50);
-	mvwaddch(pc_win, 4, 0, ACS_LTEE);
-	mvwaddch(pc_win, 4, 51, ACS_RTEE);
+		oss << bitset <8> (ram[i]);
 
-	wmove(pc_win, 6, 1);
-	whline(pc_win, ACS_HLINE, 50);
-	mvwaddch(pc_win, 6, 0, ACS_LTEE);
-	mvwaddch(pc_win, 6, 51, ACS_RTEE);
+		if (i == pc)
+			wattron(pc_win, A_STANDOUT);
 
-	ostringstream oss;
+        	mvwprintw(pc_win, i + 3, 1, " 0x%.2x   %s   %s ", i, oss.str().c_str(), assembly(ram[i]).c_str());
 
-	oss << bitset <8> (pc);
+		if (i == pc)
+			wattroff(pc_win, A_STANDOUT);
+	}
+	
+	wmove(pc_win, 3, 7);
+	wvline(pc_win, ACS_VLINE, RAMS);
+	
+	wmove(pc_win, 3, 18);
+	wvline(pc_win, ACS_VLINE, RAMS);
 
-	mvwprintw(pc_win, 3, 1, " Current Address\t %s ", oss.str().c_str());
+	mvwaddch(pc_win, 2, 7, ACS_TTEE);
+	mvwaddch(pc_win, 2 + RAMS + 1, 7, ACS_BTEE);
 
-	oss.str("");
-	oss.clear();
-
-	oss << bitset <8> (ram[pc]);
-
-	mvwprintw(pc_win, 5, 1, " Current Instruction\t %s ", oss.str().c_str());
-
-	mvwprintw(pc_win, 7, 1, " Assembly\t\t %s ", assembly(ram[pc]).c_str());
-
-	mvwaddch(pc_win, 2, 23, ACS_TTEE);
-	mvwaddch(pc_win, 3, 23, ACS_VLINE);
-	mvwaddch(pc_win, 4, 23, ACS_PLUS);
-	mvwaddch(pc_win, 5, 23, ACS_VLINE);
-	mvwaddch(pc_win, 6, 23, ACS_PLUS);
-	mvwaddch(pc_win, 7, 23, ACS_VLINE);
-	mvwaddch(pc_win, 8, 23, ACS_BTEE);
+	mvwaddch(pc_win, 2, 18, ACS_TTEE);
+	mvwaddch(pc_win, 2 + RAMS + 1, 18, ACS_BTEE);
 
 	wrefresh(pc_win);
 
@@ -309,6 +313,7 @@ int main()
 	int cursor = 1;
 
 	size_t start = 0;
+	size_t pc_win_start = 0;
 
 	int c;
 	while (true) {
@@ -319,7 +324,7 @@ int main()
 
 		if (c == KEY_UP) {
 			if (start > 0)
-				start -= 4;
+				start--;
 			// start = max(start - 4, (size_t) 0);
 			delwin(ram_win);
 			ram_win = redraw_ram_win(start);
@@ -327,8 +332,8 @@ int main()
 		}
 		
 		if (c == KEY_DOWN) {
-			if (start < 252)
-				start += 4;
+			if (start < 256 - RAMS)
+				start++;
 			// start = min(start + 4, (size_t) 256);
 			delwin(ram_win);
 			ram_win = redraw_ram_win(start);
@@ -352,11 +357,14 @@ int main()
 			if (pc < 255)
 				pc++;
 
+			if (pc_win_start < 256 - RAMS)
+				pc_win_start++;
+
 			delwin(reg_win);
 			reg_win = redraw_reg_win();
 
 			delwin(pc_win);
-			pc_win = redraw_pc_win();
+			pc_win = redraw_pc_win(pc_win_start);
 			continue;
 		}
 	}
