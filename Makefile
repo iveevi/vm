@@ -4,4 +4,4 @@ run:	main
 main:
 	@mkdir -p build
 	
-	@g++ main.cpp -lncurses -o ./build/vm
+	@g++ main.cpp -lncurses -lpthread -o ./build/vm
