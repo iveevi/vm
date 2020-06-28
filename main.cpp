@@ -260,8 +260,6 @@ void execute(vector <string> wds, size_t &pc_start)
 		
 		byte address = tmp;
 
-		// cout << "[" << addr << "] addr: " << (size_t) address << endl;
-
 		string inst = wds[2];
 
 		string conc;
@@ -276,12 +274,8 @@ void execute(vector <string> wds, size_t &pc_start)
 		byte rs;
 		byte rt;
 
-		// cout << "conc: \"" << conc << "\"";
-
 		sscanf(conc.c_str(), "$%hhd, $%hhd, $%hhd", &rd, &rs, &rt);
-
-		// cout << "rd: " << (size_t) rd << ", rs: " << (size_t) rs << ", rt: " << (size_t) rt;
-
+		
 		byte opc = 0;
 		for (opc = 0; opc < 4; opc++) {
 			if (inst == asmb[opc])
@@ -290,14 +284,7 @@ void execute(vector <string> wds, size_t &pc_start)
 
 		byte bin = (opc << 6) + (rd << 4) + (rs << 2) + rt;
 
-		/* cout << " - " << bitset <8> (bin) << endl;
-		cout << "@" << (size_t) address << endl; */
-
-		//cout << "ram: " << (size_t) ram[address] << endl;
-
 		ram[address] = bin;
-
-		//cout << "ram: " << (size_t) ram[address] << endl;
 	} else if (cmd == "reset") {
 		state st;
 
@@ -311,6 +298,12 @@ void execute(vector <string> wds, size_t &pc_start)
 
 		pc_start = 0;
 		pc = 0;
+	} else if (cmd == "load") {
+		assert(wds.size() > 1);
+
+		auto prs = assembler(wds[1]);
+		for (auto pr : prs)
+			ram[pr.first] = pr.second;
 	}
 }
 
@@ -319,11 +312,11 @@ int main()
 	ram = new byte[256];
 
 	srand(clock());
-	for (size_t i = 0; i < REGS; i++)
+	/* for (size_t i = 0; i < REGS; i++)
 		regs[i] = rand() % UINT8_MAX;
 
 	for (size_t i = 0; i < 256; i++)
-		ram[i] = rand() % UINT8_MAX;
+		ram[i] = rand() % UINT8_MAX; */
 
 	// Start windows
 	initscr();
