@@ -1,4 +1,5 @@
 #include <bitset>
+#include <cassert>
 #include <iostream>
 #include <ncurses.h>
 #include <sstream>
@@ -90,62 +91,56 @@ string assembly(byte line)
 	byte r_two = (line & 0b00001100) >> 2;
 	byte r_thr = (line & 0b00000011);
 
-	return asmb[opc] + "\tr" + to_string(r_one)
-		+ ", r" + to_string(r_two) + ", r"
+	return asmb[opc] + "\t$" + to_string(r_one)
+		+ ", $" + to_string(r_two) + ", $"
 		+ to_string(r_thr);
 }
 
 WINDOW *redraw_reg_win()
 {
-	WINDOW *subwindow = newwin(REGS + 4, 15, 1, 55);
+	WINDOW *reg_win = newwin(REGS + 6, 15, 1, 55);
 
-        box(subwindow, 0, 0);
+        box(reg_win, 0, 0);
 
 	init_pair(1, COLOR_BLUE, COLOR_BLACK);
 	
-	wattrset(subwindow, COLOR_PAIR(1));
+	wattrset(reg_win, COLOR_PAIR(1));
 
-	wattron(subwindow, A_BOLD);
-	mvwprintw(subwindow, 1, 1, " REGISTERS");
-	wattroff(subwindow, A_BOLD);
+	wattron(reg_win, A_BOLD);
+	mvwprintw(reg_win, 1, 1, " REGISTERS");
+	wattroff(reg_win, A_BOLD);
 
-	wstandend(subwindow);
+	wstandend(reg_win);
 
-	wmove(subwindow, 2, 1);
-	whline(subwindow, ACS_HLINE, 14);
-
-	state *st = nullptr;
-
-	if (!history.empty()) {
-		st = &history.top();
-		cout << st->ri << endl;
-	}
-	
+	wmove(reg_win, 2, 1);
+	whline(reg_win, ACS_HLINE, 13);
 	for (size_t i = 0; i < REGS; i++) {
 		ostringstream oss;
 
 		oss << bitset <8> (regs[i]);
 
-		if (st && st->ri == i)
-			wattron(subwindow, A_STANDOUT);
-
-        	mvwprintw(subwindow, i + 3, 1, " $%d\t 0x%.2x ", i, regs[i]);
-
-		if (st && st->ri == i)
-			wattroff(subwindow, A_STANDOUT);
+        	// mvwprintw(reg_win, i + 3, 1, " $%x\t %s ", i, oss.str().c_str());
+        	mvwprintw(reg_win, i + 3, 1, " $%d\t 0x%.2x ", i, regs[i]);
 	}
+	
+	mvwprintw(reg_win, REGS + 4, 1, " $pc\t 0x%.2x ", pc);
+	
+	wmove(reg_win, 3, 7);
+	wvline(reg_win, ACS_VLINE, REGS + 2);
+	wmove(reg_win, REGS + 3, 1);
+	whline(reg_win, ACS_HLINE, 13);
 
-	wmove(subwindow, 3, 7);
-	wvline(subwindow, ACS_VLINE, REGS);
+	mvwaddch(reg_win, 2, 0, ACS_LTEE);
+	mvwaddch(reg_win, 2, 14, ACS_RTEE);
+	mvwaddch(reg_win, REGS + 3, 0, ACS_LTEE);
+	mvwaddch(reg_win, REGS + 3, 14, ACS_RTEE);
+	mvwaddch(reg_win, 2, 7, ACS_TTEE);
+	mvwaddch(reg_win, REGS + 3, 7, ACS_PLUS);
+	mvwaddch(reg_win, REGS + 5, 7, ACS_BTEE);
 
-	mvwaddch(subwindow, 2, 0, ACS_LTEE);
-	mvwaddch(subwindow, 2, 14, ACS_RTEE);
-	mvwaddch(subwindow, 2, 7, ACS_TTEE);
-	mvwaddch(subwindow, REGS + 3, 7, ACS_BTEE);
+        wrefresh(reg_win);
 
-        wrefresh(subwindow);
-
-	return subwindow;
+	return reg_win;
 }
 
 WINDOW *redraw_ram_win(size_t start)
@@ -238,6 +233,87 @@ WINDOW *redraw_pc_win(size_t start)
 	return pc_win;
 }
 
+void execute(vector <string> wds, size_t &pc_start)
+{
+	string cmd = wds[0];
+
+	if (cmd == "set") {
+		assert(wds.size() > 2);
+
+		size_t tmp;
+
+		string addr = wds[1];
+
+		if (addr[1] == 'x' || addr[1] == 'X') {
+			addr = addr.substr(2);
+			
+			istringstream iss(addr);
+			iss >> hex >> tmp;
+		} else if (addr[1] == 'b' || addr[1] == 'B') {
+			addr = addr.substr(2);
+
+			tmp = bitset <8> (addr).to_ulong();
+		} else {
+			istringstream iss(addr);
+			iss >> dec >> tmp;
+		}
+		
+		byte address = tmp;
+
+		// cout << "[" << addr << "] addr: " << (size_t) address << endl;
+
+		string inst = wds[2];
+
+		string conc;
+		for (size_t i = 3; i < wds.size(); i++) {
+			conc += wds[i];
+
+			if (i < wds.size() - 1)
+				conc += " ";
+		}
+
+		byte rd;
+		byte rs;
+		byte rt;
+
+		// cout << "conc: \"" << conc << "\"";
+
+		sscanf(conc.c_str(), "$%hhd, $%hhd, $%hhd", &rd, &rs, &rt);
+
+		// cout << "rd: " << (size_t) rd << ", rs: " << (size_t) rs << ", rt: " << (size_t) rt;
+
+		byte opc = 0;
+		for (opc = 0; opc < 4; opc++) {
+			if (inst == asmb[opc])
+				break;
+		}
+
+		byte bin = (opc << 6) + (rd << 4) + (rs << 2) + rt;
+
+		/* cout << " - " << bitset <8> (bin) << endl;
+		cout << "@" << (size_t) address << endl; */
+
+		//cout << "ram: " << (size_t) ram[address] << endl;
+
+		ram[address] = bin;
+
+		//cout << "ram: " << (size_t) ram[address] << endl;
+	} else if (cmd == "reset") {
+		state st;
+
+		while (!history.empty()) {
+			st = history.top();
+			history.pop();
+
+			regs[st.ri] = st.rval;
+			ram[st.mi] = st.mval;
+		}
+
+		pc_start = 0;
+		pc = 0;
+	}
+}
+
 int main()
 {
 	ram = new byte[256];
@@ -258,7 +334,7 @@ int main()
 
 	ioctl(0, TIOCGWINSZ, (char *) &size);
 
-	RAMS = size.ws_row - 6;
+	RAMS = size.ws_row - 9;
 
 	// Begin Setup
 	noecho();
@@ -274,7 +350,7 @@ int main()
         refresh();
 
 	// REGISTERS
-	WINDOW *reg_win = newwin(REGS + 4, 15, 1, 55);
+	WINDOW *reg_win = newwin(REGS + 6, 15, 1, 55);
 
         box(reg_win, 0, 0);
 
@@ -298,13 +374,21 @@ int main()
         	// mvwprintw(reg_win, i + 3, 1, " $%x\t %s ", i, oss.str().c_str());
         	mvwprintw(reg_win, i + 3, 1, " $%d\t 0x%.2x ", i, regs[i]);
 	}
+	
+	mvwprintw(reg_win, REGS + 4, 1, " $pc\t 0x%.2x ", pc);
+	
 	wmove(reg_win, 3, 7);
-	wvline(reg_win, ACS_VLINE, REGS);
+	wvline(reg_win, ACS_VLINE, REGS + 2);
+	wmove(reg_win, REGS + 3, 1);
+	whline(reg_win, ACS_HLINE, 13);
 
 	mvwaddch(reg_win, 2, 0, ACS_LTEE);
 	mvwaddch(reg_win, 2, 14, ACS_RTEE);
+	mvwaddch(reg_win, REGS + 3, 0, ACS_LTEE);
+	mvwaddch(reg_win, REGS + 3, 14, ACS_RTEE);
 	mvwaddch(reg_win, 2, 7, ACS_TTEE);
-	mvwaddch(reg_win, REGS + 3, 7, ACS_BTEE);
+	mvwaddch(reg_win, REGS + 3, 7, ACS_PLUS);
+	mvwaddch(reg_win, REGS + 5, 7, ACS_BTEE);
 
         wrefresh(reg_win);
 
@@ -342,7 +426,7 @@ int main()
 
         wrefresh(ram_win);
 
-	// PC
+	// DISASSEMBLY
 	WINDOW *pc_win = newwin(RAMS + 4, 36, 1, 18);
 
         box(pc_win, 0, 0);
@@ -390,12 +474,17 @@ int main()
 
 	wrefresh(pc_win);
 
+	// COMMAND PANEL
+	WINDOW *cmd_win = newwin(3, size.ws_col - 4, RAMS + 5, 2);
+
+        box(cmd_win, 0, 0);
+
+	wmove(cmd_win, 1, 1);
+	wrefresh(cmd_win);
+
 	// Finishing touches
-	move(0, 0);
 	scrollok(stdscr, TRUE);
         refresh();
-
-	int cursor = 1;
 
 	size_t start = 0;
 	size_t pc_win_start = 0;
@@ -412,7 +501,7 @@ int main()
 			if (pc < 255)
 				pc++;
 			else
-				break;
+				play = false;
 
 			if (pc_win_start < 256 - RAMS)
 				pc_win_start++;
@@ -426,6 +515,9 @@ int main()
 			this_thread::sleep_for(0.1s);
 		}
 	});
+	
+	size_t cursor = 1;
+	string cmd;
 
 	int c;
 	while (true) {
@@ -452,18 +544,56 @@ int main()
 			continue;
 		}
 
-		/* Save for later backspacing
-		 * if (c == KEY_BACKSPACE && cmd.length() > 0) {
-			addch('\b');
-			addch(' ');
-			addch('\b');
+		if (isprint(c)) {
+			waddch(cmd_win, c);
+			wrefresh(cmd_win);
+
+			cmd += c;
+		}
+
+		if (c == 10) {
+			for (size_t i = 0; i < cmd.length(); i++) {
+				waddch(cmd_win, '\b');
+				waddch(cmd_win, ' ');
+				waddch(cmd_win, '\b');
+			}
+
+			istringstream iss(cmd);
+
+			vector <string> toks;
+
+			string wd;
+			while (iss >> wd)
+				toks.push_back(wd);
+
+			execute(toks, pc_win_start);
+
+			//cout << "ram: " << (size_t) ram[0] << endl;
+
+			delwin(ram_win);
+			ram_win = redraw_ram_win(start);
+
+			delwin(reg_win);
+			reg_win = redraw_reg_win();
+
+			delwin(pc_win);
+			pc_win = redraw_pc_win(pc_win_start);
+
+			cmd.clear();
+			
+			wrefresh(cmd_win);
+		}
+
+		 if (c == KEY_BACKSPACE && cmd.length() > 0) {
+			waddch(cmd_win, '\b');
+			waddch(cmd_win, ' ');
+			waddch(cmd_win, '\b');
 
 			cmd = cmd.substr(0, cmd.length() - 1);
-			move(cmd.length() - 1);
-			refresh();
-		} */
+			wrefresh(cmd_win);
+		}
 
-		if (c == 10 || c == KEY_F(3)) {
+		if (c == KEY_F(3)) {
 			decode(ram[pc]);
 		
 			if (pc < 255)
@@ -511,6 +641,8 @@ int main()
 	// Release Resources
         delwin(reg_win);
 	delwin(ram_win);
+	delwin(pc_win);
+	delwin(cmd_win);
         endwin();
 
 	return 0;
